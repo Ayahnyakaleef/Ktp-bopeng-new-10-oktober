@@ -122,7 +122,7 @@
 <div class="brand">
   <div class="eyebrow"><span class="pulse"></span> System Online</div>
   <h1>Bopeng Auto KTP</h1>
-  <div class="sub">Random Identity Generator · <b>v2.0</b></div>
+  <div class="sub">Random Identity Generator · <b>v2.1</b></div>
 </div>
 
 <div class="toolbar">
@@ -211,7 +211,7 @@
 
 <div class="footnote">
   <span class="line"></span>
-  Bopeng · Auto KTP · v2.0
+  Bopeng · Auto KTP · v2.1
   <span class="line"></span>
 </div>
 
@@ -317,9 +317,7 @@ function generateData(){
   document.getElementById('ttdTeks').textContent=fn.charAt(0)+fn.slice(1,4).toLowerCase();
   document.getElementById('namaTtd').textContent=s.nama;
 
-  // EXPOSE KE EXTENSION
   window.currentKtp = s;
-
   return s.jk;
 }
 
@@ -375,6 +373,22 @@ async function autoGenerate(){
   try{
     const jk=generateData();
     await loadPhotoForGender(jk);
+
+    // ============ AUTO EXPOSE IMAGE KE EXTENSION ============
+    try {
+      const imgEl = document.getElementById('photoImg');
+      if (imgEl && imgEl.src && imgEl.style.display !== 'none') {
+        const blob = await fetch(imgEl.src).then(r => r.blob());
+        const set = Object.assign({}, window.currentKtp);
+        const dataUrl = await renderKtpCanvas(set, blob);
+        window.currentKtpImage = dataUrl;
+        console.log('[KTP] currentKtpImage set, length:', dataUrl.length);
+      }
+    } catch (e) {
+      console.warn('[KTP] gagal expose image:', e.message);
+    }
+    // ============ END PATCH ============
+
     toast('✓ '+jk);
   }catch(e){
     console.error(e);
@@ -559,7 +573,6 @@ function downloadKTP(){
     :Promise.resolve(null);
 
   photoBlobPromise.then(blob=>renderKtpCanvas(set,blob)).then(dataUrl=>{
-    // EXPOSE KE EXTENSION
     window.currentKtpImage = dataUrl;
 
     const link=document.createElement('a');
@@ -641,7 +654,6 @@ async function bulkDownload(){
       const {blob}=await fetchPhotoBlob(s.jk,usedFoto);
       const dataUrl=await renderKtpCanvas(s,blob);
 
-      // EXPOSE KE EXTENSION
       window.currentKtp = s;
       window.currentKtpImage = dataUrl;
 

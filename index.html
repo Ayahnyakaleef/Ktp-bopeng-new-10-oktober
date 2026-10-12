@@ -122,7 +122,7 @@
 <div class="brand">
   <div class="eyebrow"><span class="pulse"></span> System Online</div>
   <h1>Bopeng Auto KTP</h1>
-  <div class="sub">Random Identity Generator · <b>v2.1</b></div>
+  <div class="sub">Random Identity Generator · <b>v2.2</b></div>
 </div>
 
 <div class="toolbar">
@@ -211,7 +211,7 @@
 
 <div class="footnote">
   <span class="line"></span>
-  Bopeng · Auto KTP · v2.1
+  Bopeng · Auto KTP · v2.2
   <span class="line"></span>
 </div>
 
@@ -293,6 +293,30 @@ function makeKtpSet(){
   return {prov,kab,kec,kel,kotaLahir,jk,nama,first,dd,mm,yyyy,tgl,gol,agama,status,kerja,alamat,rtrw,nik,tglTtd};
 }
 
+// ============================================================
+// EXPOSE KE EXTENSION BRIDGE
+// ktp-bridge.js baca: nama, nik, ttl, tgl, dd, mm, yyyy,
+// alamat, kab, prov, jk, gol, agama
+// ============================================================
+function exposeKtpToBridge(s){
+  window.currentKtp = {
+    nama: s.nama,
+    nik: s.nik,
+    ttl: (s.kotaLahir||'').toUpperCase() + ', ' + (s.tgl||''),
+    tgl: s.tgl,
+    dd: s.dd,
+    mm: s.mm,
+    yyyy: String(s.yyyy),
+    alamat: s.alamat,
+    kab: s.kab,
+    prov: s.prov,
+    jk: s.jk,
+    gol: s.gol,
+    agama: s.agama
+  };
+  console.log('[KTP] window.currentKtp set:', window.currentKtp.nama, '| NIK:', window.currentKtp.nik);
+}
+
 function generateData(){
   const s=makeKtpSet();
   document.getElementById('provinsi').textContent="PROVINSI "+s.prov;
@@ -317,7 +341,7 @@ function generateData(){
   document.getElementById('ttdTeks').textContent=fn.charAt(0)+fn.slice(1,4).toLowerCase();
   document.getElementById('namaTtd').textContent=s.nama;
 
-  window.currentKtp = s;
+  exposeKtpToBridge(s);
   return s.jk;
 }
 
@@ -362,6 +386,54 @@ async function loadPhotoForGender(jk){
   box.classList.remove('loading');
 }
 
+// ============================================================
+// Ambil field yang diperlukan renderKtpCanvas dari DOM
+// ============================================================
+function collectCurrentKtpSet(){
+  const set = {
+    prov: document.getElementById('provinsi').textContent.replace(/^PROVINSI /,''),
+    kab: document.getElementById('kabupaten').textContent,
+    nik: document.getElementById('nik').textContent,
+    nama: document.getElementById('nama').textContent,
+    jk: document.getElementById('jkVal').textContent,
+    gol: document.getElementById('golAbs').textContent,
+    alamat: document.getElementById('alamat').textContent,
+    rtrw: document.getElementById('rtrw').textContent,
+    kel: document.getElementById('kel').textContent,
+    kec: document.getElementById('kec').textContent,
+    agama: document.getElementById('agama').textContent,
+    status: document.getElementById('status').textContent,
+    kerja: document.getElementById('kerja').textContent,
+    tglTtd: document.getElementById('tglTtd').textContent,
+    first: document.getElementById('nama').textContent.split(' ')[0]
+  };
+  const ttl = document.getElementById('ttl').textContent;
+  const parts = ttl.split(', ');
+  set.kotaLahir = parts[0] || '';
+  set.tgl = parts[1] || '';
+  return set;
+}
+
+// ============================================================
+// Expose image ke bridge (canvas → data URL)
+// ============================================================
+async function exposeKtpImageToBridge(){
+  const imgEl = document.getElementById('photoImg');
+  if (!imgEl || !imgEl.src || imgEl.style.display === 'none') {
+    console.warn('[KTP] photoImg belum ada, skip expose image');
+    return;
+  }
+  try {
+    const blob = await fetch(imgEl.src).then(r => r.blob());
+    const set = collectCurrentKtpSet();
+    const dataUrl = await renderKtpCanvas(set, blob);
+    window.currentKtpImage = dataUrl;
+    console.log('[KTP] window.currentKtpImage set, length:', dataUrl.length);
+  } catch (e) {
+    console.warn('[KTP] gagal expose image:', e.message);
+  }
+}
+
 async function autoGenerate(){
   if(autoPhotoInFlight)return;
   autoPhotoInFlight=true;
@@ -373,22 +445,9 @@ async function autoGenerate(){
   try{
     const jk=generateData();
     await loadPhotoForGender(jk);
-
     // ============ AUTO EXPOSE IMAGE KE EXTENSION ============
-    try {
-      const imgEl = document.getElementById('photoImg');
-      if (imgEl && imgEl.src && imgEl.style.display !== 'none') {
-        const blob = await fetch(imgEl.src).then(r => r.blob());
-        const set = Object.assign({}, window.currentKtp);
-        const dataUrl = await renderKtpCanvas(set, blob);
-        window.currentKtpImage = dataUrl;
-        console.log('[KTP] currentKtpImage set, length:', dataUrl.length);
-      }
-    } catch (e) {
-      console.warn('[KTP] gagal expose image:', e.message);
-    }
+    await exposeKtpImageToBridge();
     // ============ END PATCH ============
-
     toast('✓ '+jk);
   }catch(e){
     console.error(e);
@@ -412,6 +471,8 @@ async function autoPhoto(){
   try{
     const jk=document.getElementById('jkVal').textContent.trim();
     await loadPhotoForGender(jk);
+    // refresh image bridge juga
+    await exposeKtpImageToBridge();
     toast('✓ Foto diganti');
   }catch(e){
     console.error(e);
@@ -438,6 +499,8 @@ document.getElementById('photoBox').addEventListener('click',()=>{
       img.src=e2.target.result;
       img.style.display='block';
       document.getElementById('photoPlaceholder').style.display='none';
+      // refresh image bridge juga
+      exposeKtpImageToBridge();
       toast('✓ Foto diupload');
     };
     reader.readAsDataURL(file);
@@ -545,28 +608,8 @@ function renderKtpCanvas(s,photoBlob){
 }
 
 function downloadKTP(){
+  const set = collectCurrentKtpSet();
   const imgEl=document.getElementById('photoImg');
-  const set={
-    prov:document.getElementById('provinsi').textContent.replace(/^PROVINSI /,''),
-    kab:document.getElementById('kabupaten').textContent,
-    nik:document.getElementById('nik').textContent,
-    nama:document.getElementById('nama').textContent,
-    kotaLahir:'',tgl:'',jk:document.getElementById('jkVal').textContent,
-    gol:document.getElementById('golAbs').textContent,
-    alamat:document.getElementById('alamat').textContent,
-    rtrw:document.getElementById('rtrw').textContent,
-    kel:document.getElementById('kel').textContent,
-    kec:document.getElementById('kec').textContent,
-    agama:document.getElementById('agama').textContent,
-    status:document.getElementById('status').textContent,
-    kerja:document.getElementById('kerja').textContent,
-    tglTtd:document.getElementById('tglTtd').textContent,
-    first:document.getElementById('nama').textContent.split(" ")[0]
-  };
-  const ttl=document.getElementById('ttl').textContent;
-  const parts=ttl.split(", ");
-  set.kotaLahir=parts[0]||'';
-  set.tgl=parts[1]||'';
 
   const photoBlobPromise=(imgEl.style.display!=='none'&&imgEl.src)
     ?fetch(imgEl.src).then(r=>r.blob()).catch(()=>null)
@@ -654,7 +697,22 @@ async function bulkDownload(){
       const {blob}=await fetchPhotoBlob(s.jk,usedFoto);
       const dataUrl=await renderKtpCanvas(s,blob);
 
-      window.currentKtp = s;
+      // expose ke bridge biar bisa diimport extension
+      window.currentKtp = {
+        nama: s.nama,
+        nik: s.nik,
+        ttl: (s.kotaLahir||'').toUpperCase() + ', ' + (s.tgl||''),
+        tgl: s.tgl,
+        dd: s.dd,
+        mm: s.mm,
+        yyyy: String(s.yyyy),
+        alamat: s.alamat,
+        kab: s.kab,
+        prov: s.prov,
+        jk: s.jk,
+        gol: s.gol,
+        agama: s.agama
+      };
       window.currentKtpImage = dataUrl;
 
       const link=document.createElement('a');
